@@ -119,7 +119,7 @@ function _seq_read_write_mixed_workload()
 	local read_bs="${6}"
 	local write_bs="${7}"
 
-	local cmd="fio -filename="${file}" -size="${size}" -runtime="${sec}" -direct=1 -name=read_job -rw=read -bs="${read_bs}" -name=write_job -rw=write -numjobs="${jobs}" -bs="${write_bs}""
+	local cmd="fio -group_reporting -filename="${file}" -size="${size}" -runtime="${sec}" -direct=1 -name=read_job -rw=read -bs="${read_bs}" -name=write_job -rw=write -numjobs="${jobs}" -bs="${write_bs}""
 	echo "<==========>" >> ${log}
 	echo ${cmd} >> ${log}
 	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
@@ -140,7 +140,7 @@ function _rand_read_write_mixed_workload()
 	local read_bs="${6}"
 	local write_bs="${7}"
 
-	local cmd="fio -filename="${file}" -size="${size}" -runtime="${sec}" -direct=1 -name=read_job -rw=randread -bs="${read_bs}" -name=write_job -rw=randwrite -numjobs="${jobs}" -bs="${write_bs}""
+	local cmd="fio -group_reporting -filename="${file}" -size="${size}" -runtime="${sec}" -direct=1 -name=read_job -rw=randread -bs="${read_bs}" -name=write_job -rw=randwrite -numjobs="${jobs}" -bs="${write_bs}""
 	echo "<==========>" >> ${log}
 	echo ${cmd} >> ${log}
 	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
