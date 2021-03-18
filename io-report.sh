@@ -11,10 +11,12 @@ function _io_test()
 	local file="${5}"
 	local log="${6}"
 	local size="${7}"
+	local fdatasync="${8:-0}"
 
-	fio -filename="${file}" -direct=1 -rw="${rw}" -size "${size}" -numjobs="${jobs}" \
-		-bs="${bs}" -runtime="${sec}" -group_reporting -name=test | \
-		tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'
+	local cmd="fio -filename="${file}" -direct=1 -fdatasync="${fdatasync}" -rw="${rw}" -size="${size}" -numjobs="${jobs}" -bs="${bs}" -runtime="${sec}" -group_reporting -name=test"
+	echo "<==========>" >> ${log}
+	echo ${cmd} >> ${log}
+	${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'
 }
 
 function _io_standard()
@@ -24,14 +26,18 @@ function _io_standard()
 	local log="${3}"
 	local sec="${4}"
 	local size="${5}"
+	local bs="${6}"
 
-	local wl_w=`_io_test 'write' 64k "${sec}" "${threads}" "${file}" "${log}" "${size}"`
-	local wl_r=`_io_test 'read'  64k "${sec}" "${threads}" "${file}" "${log}" "${size}"`
+	local wl_w=`_io_test 'write' "${bs}" "${sec}" "${threads}" "${file}" "${log}" "${size}"`
+	local wl_sync=`_io_test 'write' "${bs}" "${sec}" "${threads}" "${file}" "${log}" "${size}" "1"`
+	local wl_r=`_io_test 'read'  "${bs}" "${sec}" "${threads}" "${file}" "${log}" "${size}"`
 	local wl_iops_w=`echo "${wl_w}" | awk -F ',' '{print $1}'`
+	local wl_iops_sync=`echo "${wl_sync}" | awk -F ',' '{print $1}'`
 	local wl_iops_r=`echo "${wl_r}" | awk -F ',' '{print $1}'`
 	local wl_iotp_w=`echo "${wl_w}" | awk '{print $2}'`
+	local wl_iotp_sync=`echo "${wl_sync}" | awk '{print $2}'`
 	local wl_iotp_r=`echo "${wl_r}" | awk '{print $2}'`
-	echo "64K, ${threads} threads: Write: ${wl_iops_w} ${wl_iotp_w}, Read: ${wl_iops_r} ${wl_iotp_r}"
+	echo "${bs}, ${threads} threads: Write: ${wl_iops_w} ${wl_iotp_w}, WriteSync: ${wl_iops_sync} ${wl_iotp_sync}, Read: ${wl_iops_r} ${wl_iotp_r}"
 }
 
 function io_report()
@@ -47,31 +53,16 @@ function io_report()
 	local size="${4}"
 	local threads="${5}"
 
-	local iops_w=`_io_test randwrite 4k "${sec}" "${threads}" "${file}" "${log}" "${size}" | awk -F ',' '{print $1}'`
-	local iops_r=`_io_test randread  4k "${sec}" "${threads}" "${file}" "${log}" "${size}" | awk -F ',' '{print $1}'`
-	local iotp_w=`_io_test randwrite 4m "${sec}" "${threads}" "${file}" "${log}" "${size}" | awk '{print $2}'`
-	local iotp_r=`_io_test randread  4m "${sec}" "${threads}" "${file}" "${log}" "${size}" | awk '{print $2}'`
+	t_arr=("1" "2" "4" "8" "16")
+	bs_arr=("4k" "16k" "64k" "256k" "1m")
 
-	echo "Max: RandWrite: (4K)${iops_w} (4M)${iotp_w}, RandRead: (4K)${iops_r} (4M)${iotp_r}"
-
-	_io_standard " 4" "${file}" "${log}" "${sec}" "${size}"
-	_io_standard " 8" "${file}" "${log}" "${sec}" "${size}"
-	_io_standard "16" "${file}" "${log}" "${sec}" "${size}"
-	_io_standard "32" "${file}" "${log}" "${sec}" "${size}"
-
-	rm -f "$log.w.stable"
-	for ((i = 0; i < 3; i++)); do
-		_io_test randwrite 64k "${sec}" "${threads}" "${file}" "${log}" "${size}" >> "$log.w.stable"
+	for t in ${t_arr[@]}
+	do
+		for bs in ${bs_arr[@]}
+		do
+			_io_standard "${t}" "${file}" "${log}" "${sec}" "${size}" "${bs}"
+		done
 	done
-	local w_stable=(`cat "$log.w.stable" | awk -F 'BW=' '{print $2}' | awk '{print $1}'`)
-	echo "RandWrite stable test: (64K 8t) ["${w_stable[@]}"]"
-
-	rm -f "$log.r.stable"
-	for ((i = 0; i < 3; i++)); do
-		_io_test randread 64k "${sec}" "${threads}" "${file}" "${log}" "${size}" >> "$log.r.stable"
-	done
-	local r_stable=(`cat "$log.r.stable" | awk -F 'BW=' '{print $2}' | awk '{print $1}'`)
-	echo "RandRead stable test: (64K 8t) ["${r_stable[@]}"]"
 }
 export -f io_report
 
@@ -82,31 +73,87 @@ function _lat_workload()
 	local run_sec="${1}"
 	local file="${2}"
 	local threads="${3}"
-	local bsk="${4}"
+	local bs="${4}"
 	local rw="${5}"
 	local fsize="${6}"
-	local run_sec=$((run_sec + 10))
-	echo fio -threads="${threads}" -size="${fsize}" -bs="${bsk}k" -direct=1 -rw="rand${rw}" \
-		-name=test -group_reporting -filename="${file}" -runtime="${run_sec}"
-	fio -threads="${threads}" -size="${fsize}" -bs="${bsk}k" -direct=1 -rw="rand${rw}" \
-		-name=test -group_reporting -filename="${file}" -runtime="${run_sec}" 1>/dev/null 2>&1
+	local iops="${7}"
+	local log="${8}"
+
+	local cmd="fio -threads="${threads}" -size="${fsize}" -bs="${bs}" -direct=1 -rw="rand${rw}" -rate_iops="${iops}" \
+		-name=test -group_reporting -filename="${file}" -runtime="${run_sec}""
+	echo "<==========>" >> ${log}
+	echo ${cmd} >> ${log}
+	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
+	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
+	local iotp=`echo "${output}" | awk '{print $2}'`
+	echo "${iops} ${iotp}"
 }
 
-function _lat_collect()
+function mixed_workload()
 {
-	local run_sec="${1}"
-	local disk="${2}"
-	local lines=$((run_sec * 3 + 10))
-	local run_time=$((run_sec + 2))
-	iostat -xdm "fake-dev-for-print-header" | grep 'Dev' | head -n 1
-	iostat -xdm 1 "${disk}" | head -n "${lines}" | grep --line-buffered -v "Linux" | \
-		grep --line-buffered -v '^$' | grep --line-buffered -v 'Device' |\
-		head -n "${run_time}" | tail -n "${run_sec}" | head -n 3
+	local file="${1}"
+	local log="${2}"
+
+	threads=("1" "2" "4" "8")
+	for t in ${threads[@]}
+	do
+		_seq_read_write_mixed_workload "60s" "${t}" "16G" "${file}" "${log}" "1m" "1m" 
+	done
+
+	threads=("1" "2" "4")
+	for t in ${threads[@]}
+	do
+		_rand_read_write_mixed_workload "60s" "${t}" "16G" "${file}" "${log}" "4k" "64k" 
+	done
+
+	_seq_read_write_mixed_workload "60s" "${t}" "16G" "${file}" "${log}" "4k" "1m" 
+}
+
+function _seq_read_write_mixed_workload()
+{
+	local sec="${1}"
+	local jobs="${2}"
+	local size="${3}"
+	local file="${4}"
+	local log="${5}"
+	local read_bs="${6}"
+	local write_bs="${7}"
+
+	local cmd="fio -filename="${file}" -size="${size}" -runtime="${sec}" -direct=1 -name=read_job -rw=read -bs="${read_bs}" -name=write_job -rw=write -numjobs="${jobs}" -bs="${write_bs}""
+	echo "<==========>" >> ${log}
+	echo ${cmd} >> ${log}
+	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
+	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
+	local iotp=`echo "${output}" | awk '{print $2}'`
+	echo "[seq read + seq write write_jobs:${jobs} write_bs=${write_bs} read_bs:${read_bs}]"
+	echo "${iops}"
+	echo "${iotp}"
+}
+
+function _rand_read_write_mixed_workload()
+{
+	local sec="${1}"
+	local jobs="${2}"
+	local size="${3}"
+	local file="${4}"
+	local log="${5}"
+	local read_bs="${6}"
+	local write_bs="${7}"
+
+	local cmd="fio -filename="${file}" -size="${size}" -runtime="${sec}" -direct=1 -name=read_job -rw=randread -bs="${read_bs}" -name=write_job -rw=randwrite -numjobs="${jobs}" -bs="${write_bs}""
+	echo "<==========>" >> ${log}
+	echo ${cmd} >> ${log}
+	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
+	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
+	local iotp=`echo "${output}" | awk '{print $2}'`
+	echo "[rand read + seq write write_jobs:${jobs} write_bs=${write_bs} read_bs:${read_bs}]"
+	echo "${iops}"
+	echo "${iotp}"
 }
 
 function io_lat_report()
 {
-	if [ -z "${6+x}" ]; then
+	if [ -z "${4+x}" ]; then
 		echo "[func io_report] usage: <func> test_file disk_name each_test_sec bw_threads iops_threads file_size" >&2
 		return 1
 	fi
@@ -114,70 +161,28 @@ function io_lat_report()
 	local file="${1}"
 	local disk="${2}"
 	local run_sec="${3}"
-	local bw_max_threads="${4}"
-	local iops_max_threads="${5}"
-	local fsize="${6}"
+	local fsize="${4}"
+	local log="${5}"
 
-	local bsk="256"
-	for ((i = 1; i <= ${bw_max_threads};)); do
-		echo "[w_bw_${i}t]"
-		_lat_workload "${run_sec}" "${file}" "${i}" "${bsk}" "write" "${fsize}" &
-		_lat_collect "${run_sec}" "${disk}"
-		wait
-		echo "[r_bw_${i}t]"
-		_lat_workload "${run_sec}" "${file}" "${i}" "${bsk}" "read" "${fsize}" &
-		_lat_collect "${run_sec}" "${disk}"
-		wait
-		i=$((i * 2))
-		bsk=$((bsk * 2))
-	done
-	local max_bsk="${bsk}"
 
-	for ((i = 1; i <= ${iops_max_threads};)); do
-		echo "[w_iops_${i}t]"
-		_lat_workload "${run_sec}" "${file}" "${i}" "4" "write" "${fsize}" &
-		_lat_collect "${run_sec}" "${disk}"
-		wait
-		echo "[r_iops_${i}t]"
-		_lat_workload "${run_sec}" "${file}" "${i}" "4" "read" "${fsize}" &
-		_lat_collect "${run_sec}" "${disk}"
-		wait
-		i=$((i * 2))
-	done
+	t_arr=("1" "2" "4" "8" "16")
+	bs_arr=("4k" "64k" "256k" "1m")
+	iops_arr=("1000" "2000" "3000" "4000" "5000")
 
-	local bw_threads="${bw_max_threads}"
-	local iops_threads="${iops_max_threads}"
-	local bsk="${max_bsk}"
-	for ((; 1 == 1;)); do
-		echo "[w_bw_${bw_threads}t + w_iops_${iops_threads}t]"
-		_lat_workload "${run_sec}" "${file}" "${bw_threads}" "${bsk}" "write" "${fsize}" &
-		_lat_workload "${run_sec}" "${file}" "${iops_threads}" "4" "write" "${fsize}" &
-		_lat_collect "${run_sec}" "${disk}"
-		wait
-		local bw_threads=$((bw_threads / 2))
-		local iops_threads=$((iops_threads / 2))
-		local bsk=$((bsk / 2))
-		if [ "${bw_threads}" == 0 ] || [ "${iops_threads}" == 0 ] || [ "${bsk}" == 0 ]; then
-			break;
-		fi
-	done
-
-	local bw_threads="${bw_max_threads}"
-	local iops_threads="${iops_max_threads}"
-	local bsk="${max_bsk}"
-	for ((; 1 == 1;)); do
-		echo "[w_bw_${bw_threads}t + w_iops_${iops_threads}t + r_iops_${iops_threads}t]"
-		_lat_workload "${run_sec}" "${file}" "${bw_threads}" "${bsk}" "write" "${fsize}" &
-		_lat_workload "${run_sec}" "${file}" "${bw_threads}" "${bsk}" "read" "${fsize}" &
-		_lat_workload "${run_sec}" "${file}" "${iops_threads}" "4" "write" "${fsize}" &
-		_lat_collect "${run_sec}" "${disk}"
-		wait
-		local bw_threads=$((bw_threads / 2))
-		local iops_threads=$((iops_threads / 2))
-		local bsk=$((bsk / 2))
-		if [ "${bw_threads}" == 0 ] || [ "${iops_threads}" == 0 ] || [ "${bsk}" == 0 ]; then
-			break;
-		fi
+	for t in ${t_arr[@]}
+	do
+		for bs in ${bs_arr[@]}
+		do
+			for iops in ${iops_arr[@]}
+			do
+			echo "[w_bw_${t}t_${bs}bs_${iops}iops]"
+			_lat_workload "${run_sec}" "${file}" "${t}" "${bs}" "write" "${fsize}" "${iops}" "${log}"
+			wait
+			echo "[r_bw_${t}t_${bs}bs_${iops}iops]"
+			_lat_workload "${run_sec}" "${file}" "${t}" "${bs}" "read" "${fsize}" "${iops}" "${log}"
+			wait
+			done
+		done
 	done
 }
 export -f io_lat_report
@@ -221,14 +226,9 @@ function get_device()
 
 function check_all_installed()
 {
-	local info=`fio --help 2>&1 | grep 'Print version'`
+	local info=`fio --help 2>&1 | grep '--version'`
 	if [ -z "${info}" ]; then
 		echo "fio is not installed" >&2
-		return 1
-	fi
-	local usage=`iostat --help 2>&1 | grep 'Usage'`
-	if [ -z "${usage}" ]; then
-		echo "iostat is not installed" >&2
 		return 1
 	fi
 }
@@ -237,16 +237,13 @@ function check_all_installed()
 
 function io_trait()
 {
-	local file="${1}"
+	local dir="${1}"
 
-	touch "${file}"
-	local file=`readlink -f "${file}"`
-
+	mkdir "${dir}"
+	cd "${dir}"
+	touch "tempfile"
+	local file=`readlink -f "tempfile"`
 	local dir=`dirname "${file}"`
-	if [ ! -d "${dir}" ]; then
-		echo "${dir} dir not exits" >&2
-		return 1
-	fi
 	local disk=`get_device "${dir}"`
 
 	check_all_installed
@@ -254,32 +251,35 @@ function io_trait()
 	local log="./io-report.`hostname`.`basename ${disk}`.log"
 	echo "IO trait report created by [io-report.sh]" > "${log}"
 	echo "    host: `hostname`" >> "${log}"
-	echo "    file: ${file}" >> "${log}"
+	echo "    file: tempfile" >> "${log}"
 	echo "    disk: ${disk}" >> "${log}"
 	echo "    date: `date +%D-%T`" >> "${log}"
 	echo "" >> "${log}"
 	echo "Get involved:" >> "${log}"
+	echo "    https://github.com/hunterlxt/io-report" >> "${log}"
+	echo "Forked:" >> "${log}"
 	echo "    https://github.com/innerr/io-report" >> "${log}"
-	echo "Download io-report.sh" >> "${log}"
-	echo "    https://raw.githubusercontent.com/innerr/io-report/master/io-report.sh" >> "${log}"
 	echo "" >> "${log}"
 
 	echo "==> [basic io spec report] (size=16G, runtime=30s)" >> "${log}"
-	io_report "${file}" "${file}.fio.tmp.log" "30" "16G" "8" >> "${log}"
+	io_report "tempfile" "tempfile.fio.basic.log" "30" "16G" "8" >> "${log}"
 	echo "" >> "${log}"
 	echo "==> [cache detecting report] (size=500M, runtime=15s)" >> "${log}"
-	io_report "${file}" "${file}.fio.tmp.log" "15" "500M" "8" >> "${log}"
+	io_report "tempfile" "tempfile.fio.cache.log" "15" "500M" "8" >> "${log}"
 	echo "" >> "${log}"
 	echo "==> [latency report]" >> "${log}"
-	io_lat_report "${file}" "${disk}" "30" "64" "128" "16G" >> "${log}"
+	io_lat_report "tempfile" "${disk}" "30" "16G" "tempfile.fio.lat.log" >> "${log}"
+	echo "" >> "${log}"
+	echo "==> [mixed workload report]" >> "${log}"
+	mixed_workload "tempfile" "tempfile.fio.mixed.log" >> "${log}"
 }
 export -f io_trait
 
 ## user interface
 
 set -eu
-if [ -z "${1+x}" ]; then
-	echo "usage: <bin> test_file_path" >&2
+if [ "$#" != 1 ]; then
+	echo "usage: <bin> test_dir" >&2
 	exit 1
 fi
 io_trait "${1}"
