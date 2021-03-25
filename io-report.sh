@@ -51,8 +51,8 @@ function _io_standard()
 
 function io_report()
 {
-	if [ -z "${5+x}" ]; then
-		echo "[func io_report] usage: <func> test_file test_log each_test_sec test_file_size" >&2
+	if [ -z "${4+x}" ]; then
+		echo "usage error" >&2
 		return 1
 	fi
 
@@ -246,7 +246,7 @@ function io_trait()
 {
 	local dir="${1}"
 
-	mkdir "${dir}"
+	mkdir -p "${dir}"
 	cd "${dir}"
 	local disk=`get_device "."`
 
