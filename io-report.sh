@@ -109,60 +109,40 @@ function mixed_workload()
 {
 	local log="${1}"
 
-	threads=("1" "2" "4" "8")
-	for t in ${threads[@]}
-	do
-		_seq_read_write_mixed_workload "300s" "${t}" "8G" "${log}" "1m" "1m" "posix"
-	done
+	threads_write_1m_seq=("1" "2" "4" "8")
+	threads_write_64k_seq=("1" "2" "4")
 
-	threads=("1" "2" "4")
-	for t in ${threads[@]}
+	for t1 in ${threads_write_1m_seq[@]}
 	do
-		_rand_read_write_mixed_workload "300s" "${t}" "8G" "${log}" "4k" "64k" 
+		for t2 ${threads_write_64k_seq[@]}
+		do
+			_exec_mixed_workload "300s" "8G" "${log}" "${t1}" "${t2}"
+		done
 	done
-
-	_seq_read_write_mixed_workload "300s" "${t}" "8G" "${log}" "64k" "1m" "native"
 }
 
-function _seq_read_write_mixed_workload()
+function _exec_mixed_workload()
 {
 	local sec="${1}"
-	local jobs="${2}"
-	local size="${3}"
-	local log="${4}"
-	local read_bs="${5}"
-	local write_bs="${6}"
-	local allo="${7}"
+	local size="${2}"
+	local log="${3}"
+	local jobs_1m="${4}"
+	local jobs_64k="${5}"
 
-	local cmd="fio -group_reporting -size="${size}" -runtime="${sec}" -direct=1 -fallocate="${allo}" -name=read_job -rw=read -bs="${read_bs}" -name=write_job -rw=write -numjobs="${jobs}" -bs="${write_bs}" -ramp_time=15 -randseed=0 -time_based"
+	local cmd="fio -size="${size}" -ramp_time=10 -randseed=0 -time_based -runtime="${sec}" \
+				-name=write_1m_seq -rw=write -bs=1m -fallocate=posix -numjobs="${jobs_1m}" \
+				-name=write_64k_seq -rw=write -bs=64k -fdatasync=1 -numjobs="${jobs_64k}" \
+				-name=read_1m_seq -rw=read -bs=1m -numjobs=1 \
+				-name=read_64k_seq -rw=read -bs=64k -numjobs=1 \
+				-name=read_4k_rand -rw=randread -bs=4k -numjobs=1"
+
 	echo "====================" >> ${log}
 	rm -rf "*.0" || true
 	echo ${cmd} >> ${log}
 	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
 	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
 	local iotp=`echo "${output}" | awk '{print $2}'`
-	echo "[seq read + seq write write_jobs:${jobs} write_bs=${write_bs} read_bs:${read_bs}]"
-	echo "${iops}"
-	echo "${iotp}"
-}
-
-function _rand_read_write_mixed_workload()
-{
-	local sec="${1}"
-	local jobs="${2}"
-	local size="${3}"
-	local log="${4}"
-	local read_bs="${5}"
-	local write_bs="${6}"
-
-	local cmd="fio -group_reporting -size="${size}" -runtime="${sec}" -direct=1 -name=read_job -rw=randread -bs="${read_bs}" -name=write_job -rw=randwrite -numjobs="${jobs}" -bs="${write_bs}" -ramp_time=15 -randseed=0 -time_based"
-	echo "====================" >> ${log}
-	rm -rf "*.0" || true
-	echo ${cmd} >> ${log}
-	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
-	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
-	local iotp=`echo "${output}" | awk '{print $2}'`
-	echo "[rand read + seq write write_jobs:${jobs} write_bs=${write_bs} read_bs:${read_bs}]"
+	echo "[mixed workload, write_1m_seq_jobs:${jobs_1m}, write_64k_seq_jobs:${jobs_64k}]"
 	echo "${iops}"
 	echo "${iotp}"
 }
