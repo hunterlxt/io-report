@@ -22,7 +22,7 @@ function _io_test()
 
 	echo "====================" >> ${log}
 	if [ `echo ${rm} | grep "1"` ]; then
-		rm -rf "*.0"
+		rm -rf "*.0" || true
 	fi
 	echo ${cmd} >> ${log}
 	${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'
@@ -89,12 +89,20 @@ function _lat_workload()
 	local cmd="fio -numjobs="${threads}" -size="${fsize}" -bs="${bs}" -direct=1 -rw="rand${rw}" -rate_iops="${iops}" \
 		-name=test -group_reporting -runtime="${run_sec}" -ramp_time=15 -randseed=0 -time_based"
 	echo "====================" >> ${log}
-	rm -rf "*.0"
+	rm -rf "*.0" || true
 	echo ${cmd} >> ${log}
-	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
-	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
-	local iotp=`echo "${output}" | awk '{print $2}'`
+	local output=`${cmd} | tee -a ${log}`
+	local out=`echo "${output}" | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
+	local iops=`echo "${out}" | awk -F ',' '{print $1}'`
+	local iotp=`echo "${out}" | awk '{print $2}'`
+	local lats=`echo "${output}" | grep "lat (usec): " | awk -F ', ' '{print $2 " "$3}'`
+	local clat=`echo "${lats}" | awk 'NR==1{print}'`
+	local lat=`echo "${lats}" | awk 'NR==2{print}'`
+	local lat_99=`echo "${output}" | grep "99.99th=" | sed 's/ *//' | sed 's/|//' | sed 's/ //' | sed 's/ //'`
 	echo "${iops} ${iotp}"
+	echo "clat (usec): ${clat}"
+	echo "lat (usec): ${lat}"
+	echo "${lat_99}"
 }
 
 function mixed_workload()
@@ -128,7 +136,7 @@ function _seq_read_write_mixed_workload()
 
 	local cmd="fio -group_reporting -size="${size}" -runtime="${sec}" -direct=1 -fallocate="${allo}" -name=read_job -rw=read -bs="${read_bs}" -name=write_job -rw=write -numjobs="${jobs}" -bs="${write_bs}" -ramp_time=15 -randseed=0 -time_based"
 	echo "====================" >> ${log}
-	rm -rf "*.0"
+	rm -rf "*.0" || true
 	echo ${cmd} >> ${log}
 	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
 	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
@@ -149,7 +157,7 @@ function _rand_read_write_mixed_workload()
 
 	local cmd="fio -group_reporting -size="${size}" -runtime="${sec}" -direct=1 -name=read_job -rw=randread -bs="${read_bs}" -name=write_job -rw=randwrite -numjobs="${jobs}" -bs="${write_bs}" -ramp_time=15 -randseed=0 -time_based"
 	echo "====================" >> ${log}
-	rm -rf "*.0"
+	rm -rf "*.0" || true
 	echo ${cmd} >> ${log}
 	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
 	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
