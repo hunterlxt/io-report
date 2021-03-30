@@ -116,6 +116,7 @@ function mixed_workload()
 	do
 		for t2 in ${threads_write_64k_seq[@]}
 		do
+			rm -rf "*.0" || true
 			_exec_mixed_workload "300s" "8G" "${log}" "${t1}" "${t2}"
 		done
 	done
