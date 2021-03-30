@@ -229,6 +229,15 @@ function check_all_installed()
 	fi
 }
 
+function generate_disk_info()
+{
+	local log="disk.info.log"
+	echo "==========smartctl=========="
+	smartctl -i ${1} >> ${log}
+	echo "==========fdisk=========="
+	fdisk -l >> ${log}
+}
+
 ## main entry
 
 function io_trait()
@@ -240,6 +249,7 @@ function io_trait()
 	local disk=`get_device "."`
 
 	check_all_installed
+	generate_disk_info ${disk}
 
 	local log="./io-report.`hostname`.`basename ${disk}`.log"
 	echo "IO trait report created by [io-report.sh]" > "${log}"
