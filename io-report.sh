@@ -232,10 +232,12 @@ function check_all_installed()
 function generate_disk_info()
 {
 	local log="disk.info.log"
-	echo "==========smartctl=========="
-	smartctl -i ${1} >> ${log}
-	echo "==========fdisk=========="
-	fdisk -l >> ${log}
+	echo "==========smartctl==========" >> ${log}
+	local info=`smartctl -i ${1}`
+	echo "${info}" >> ${log}
+	echo "==========fdisk==========" >> ${log}
+	local info=`fdisk -l`
+	echo "${info}" >> ${log}
 }
 
 ## main entry
