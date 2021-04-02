@@ -85,9 +85,18 @@ function _lat_workload()
 	local fsize="${5}"
 	local iops="${6}"
 	local log="${7}"
+	local fdatasync="${8:-0}"
+	local rate_iops=`expr ${iops} / ${threads}`
+	local cmd
 
-	local cmd="fio -numjobs="${threads}" -size="${fsize}" -bs="${bs}" -direct=1 -rw="rand${rw}" -rate_iops="${iops}" \
+	if [ `echo ${fdatasync} | grep "1"` ]; then
+		cmd="fio -direct=0 -fdatasync=1 -numjobs="${threads}" -size="${fsize}" -bs="${bs}" -rw="rand${rw}" -rate_iops="${rate_iops}" \
 		-name=test -group_reporting -runtime="${run_sec}" -ramp_time=15 -randseed=0 -time_based"
+	else
+		cmd="fio -direct=1 -fdatasync=0 -numjobs="${threads}" -size="${fsize}" -bs="${bs}" -rw="rand${rw}" -rate_iops="${rate_iops}" \
+		-name=test -group_reporting -runtime="${run_sec}" -ramp_time=15 -randseed=0 -time_based"
+	fi
+
 	echo "====================" >> ${log}
 	rm -rf "*.0" || true
 	echo ${cmd} >> ${log}
@@ -109,7 +118,7 @@ function mixed_workload()
 {
 	local log="${1}"
 
-	threads_write_1m_seq=("1" "2" "4" "8")
+	threads_write_1m_seq=("0" "1" "2" "4" "8")
 	threads_write_64k_seq=("1" "2" "4")
 
 	for t1 in ${threads_write_1m_seq[@]}
@@ -129,12 +138,13 @@ function _exec_mixed_workload()
 	local jobs_1m="${4}"
 	local jobs_64k="${5}"
 
-	local cmd="fio -size="${size}" -ramp_time=10 -randseed=0 -time_based -runtime="${sec}" \
-				-name=write_1m_seq -rw=write -bs=1m -fallocate=posix -numjobs="${jobs_1m}" \
-				-name=write_64k_seq -rw=write -bs=64k -fdatasync=1 -numjobs="${jobs_64k}" \
-				-name=read_1m_seq -rw=read -bs=1m -numjobs=1 \
-				-name=read_64k_seq -rw=read -bs=64k -numjobs=1 \
-				-name=read_4k_rand -rw=randread -bs=4k -numjobs=1"
+	local cmd="fio -size="${size}" -ramp_time=10 -randseed=0 -time_based -runtime=${sec} \
+				-new_group -name=write_64k_seq -rw=write -bs=64k -fdatasync=1 -fallocate=posix -numjobs=${jobs_64k}"
+	local cmd_1="-new_group -name=write_1m_seq -rw=write -bs=1m -fallocate=posix -numjobs=${jobs_1m} \
+				-new_group -name=read_4k_rand -rw=randread -bs=4k -numjobs=${jobs_1m}"
+	if [ "${jobs_1m}" != "0" ]; then
+		cmd=""${cmd}" "${cmd_1}""
+	fi
 
 	echo "====================" >> ${log}
 	rm -rf "*.0" || true
@@ -171,11 +181,14 @@ function io_lat_report()
 		do
 			for iops in ${iops_arr[@]}
 			do
-			echo "[w_bw_${t}t_${bs}bs_${iops}iops]"
+			echo "[write_${t}t_${bs}bs_${iops}iops]"
 			_lat_workload "${run_sec}" "${t}" "${bs}" "write" "${fsize}" "${iops}" "${log}"
 			wait
-			echo "[r_bw_${t}t_${bs}bs_${iops}iops]"
+			echo "[read_${t}t_${bs}bs_${iops}iops]"
 			_lat_workload "${run_sec}" "${t}" "${bs}" "read" "${fsize}" "${iops}" "${log}"
+			wait
+			echo "[write_sync_${t}t_${bs}bs_${iops}iops]"
+			_lat_workload "${run_sec}" "${t}" "${bs}" "write" "${fsize}" "${iops}" "${log}" "1"
 			wait
 			done
 		done
@@ -257,6 +270,7 @@ function io_trait()
 	echo "IO trait report created by [io-report.sh]" > "${log}"
 	echo "    host: `hostname`" >> "${log}"
 	echo "    disk: ${disk}" >> "${log}"
+	echo "    os: `uname -a`" >> "${log}"
 	echo "    date: `date +%D-%T`" >> "${log}"
 	echo "" >> "${log}"
 	echo "Get involved:" >> "${log}"
