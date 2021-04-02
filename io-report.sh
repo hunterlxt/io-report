@@ -139,7 +139,7 @@ function _exec_mixed_workload()
 	local jobs_1m="${4}"
 	local jobs_64k="${5}"
 
-	local cmd="fio -size="${size}" -ramp_time=10 -randseed=0 -time_based -runtime=${sec} \
+	local cmd="fio -size="${size}" -ramp_time=10 -randseed=0 -time_based -group_reporting -runtime=${sec} \
 				-new_group -name=write_64k_seq -rw=write -bs=64k -fdatasync=1 -fallocate=posix -numjobs=${jobs_64k}"
 	local cmd_1="-new_group -name=write_1m_seq -rw=write -bs=1m -fallocate=posix -numjobs=${jobs_1m} \
 				-new_group -name=read_4k_rand -rw=randread -bs=4k -numjobs=${jobs_1m}"
