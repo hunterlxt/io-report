@@ -153,8 +153,8 @@ function _exec_mixed_workload()
 	local output=`${cmd} | tee -a ${log} | { grep IOPS || test $? == 1; } | awk -F ': ' '{print $2}'`
 	local iops=`echo "${output}" | awk -F ',' '{print $1}'`
 	local iotp=`echo "${output}" | awk '{print $2}'`
-	echo "[mixed workload, write_1m_seq_jobs:${jobs_1m}, write_64k_seq_jobs:${jobs_64k}]"
-	echo "Jobs: write_1m_seq, write_64k_seq, read_1m_seq, read_64k_seq, read_4k_rand"
+	echo "[mixed workload, write_1m_seq_jobs:${jobs_1m}, read_4k_rand_jobs:${jobs_1m}, write_64k_seq_jobs:${jobs_64k}]"
+	echo "Jobs: write_64k_seq, write_1m_seq, read_4k_rand"
 	echo "${iops}"
 	echo "${iotp}"
 }
